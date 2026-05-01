@@ -330,21 +330,28 @@ elif current == "eda":
     st.markdown("### 📋 변수 목록 및 타입")
     col_left, col_right = st.columns([1, 1])
 
+    # ✅ 수정: pd.api.types 사용
+    num_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+    cat_cols = [col for col in df.columns if not pd.api.types.is_numeric_dtype(df[col])]
+
     with col_left:
         dtype_df = pd.DataFrame({
-            "변수명":   df.columns,
-            "데이터 타입": df.dtypes.astype(str).values,
-            "결측치 수":  df.isnull().sum().values,
+            "변수명":         df.columns.tolist(),
+            "데이터 타입":    df.dtypes.astype(str).values,
+            "변수 구분":      ["수치형" if c in num_cols else "범주형" for c in df.columns],
+            "결측치 수":      df.isnull().sum().values,
             "결측치 비율(%)": (df.isnull().mean() * 100).round(2).values,
-            "고유값 수":  df.nunique().values,
+            "고유값 수":      df.nunique().values,
         })
         st.dataframe(dtype_df, use_container_width=True, height=320)
 
     with col_right:
-        # 타입별 분포 파이차트
-        type_counts = df.dtypes.apply(
-            lambda x: "수치형" if np.issubdtype(x, np.number) else "범주형"
-        ).value_counts()
+        # ✅ 수정: pd.api.types 사용
+        type_counts = pd.Series([
+            "수치형" if pd.api.types.is_numeric_dtype(df[col]) else "범주형"
+            for col in df.columns
+        ]).value_counts()
+
         fig_pie, ax_pie = plt.subplots(figsize=(4, 3.5))
         colors = ["#667eea", "#f093fb"]
         ax_pie.pie(type_counts.values, labels=type_counts.index,
@@ -360,8 +367,6 @@ elif current == "eda":
     st.markdown("### 📊 변수 시각화")
 
     all_cols = df.columns.tolist()
-    num_cols = df.select_dtypes(include=np.number).columns.tolist()
-    cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
     v_col1, v_col2, v_col3 = st.columns([1, 1, 1])
     with v_col1:
@@ -381,7 +386,8 @@ elif current == "eda":
 
         try:
             if chart_type == "Histogram":
-                if df[x_var].dtype == object:
+                # ✅ 수정: pd.api.types 사용
+                if not pd.api.types.is_numeric_dtype(df[x_var]):
                     df[x_var].value_counts().plot(kind="bar", ax=ax, color=palette)
                     ax.set_xlabel(x_var); ax.set_ylabel("빈도")
                 else:
@@ -390,7 +396,7 @@ elif current == "eda":
                     ax.set_xlabel(x_var); ax.set_ylabel("빈도")
 
             elif chart_type == "Box Plot":
-                if y_var != "(없음)" and df[y_var].dtype == object:
+                if y_var != "(없음)" and not pd.api.types.is_numeric_dtype(df[y_var]):
                     groups = [df[df[y_var] == g][x_var].dropna()
                               for g in df[y_var].unique()]
                     ax.boxplot(groups, labels=df[y_var].unique(), patch_artist=True,
@@ -404,13 +410,14 @@ elif current == "eda":
             elif chart_type == "Scatter Plot":
                 if y_var == "(없음)":
                     st.warning("Scatter Plot은 Y축 변수를 선택해야 합니다.")
-                    plt.close(); st.stop()
+                    plt.close()
+                    st.stop()
                 ax.scatter(df[x_var], df[y_var], alpha=0.4,
                            color=palette, edgecolors="white", linewidths=0.3)
                 ax.set_xlabel(x_var); ax.set_ylabel(y_var)
 
             elif chart_type == "Bar Chart":
-                if df[x_var].dtype == object:
+                if not pd.api.types.is_numeric_dtype(df[x_var]):
                     df[x_var].value_counts().plot(kind="bar", ax=ax,
                                                   color=palette, edgecolor="white")
                 else:
@@ -425,15 +432,18 @@ elif current == "eda":
 
             elif chart_type == "Line Chart":
                 if y_var != "(없음)":
-                    ax.plot(df[x_var], df[y_var], color=palette, alpha=0.7, linewidth=1.2)
+                    ax.plot(df[x_var], df[y_var],
+                            color=palette, alpha=0.7, linewidth=1.2)
                     ax.set_xlabel(x_var); ax.set_ylabel(y_var)
                 else:
                     df[x_var].reset_index(drop=True).plot(ax=ax, color=palette)
                     ax.set_ylabel(x_var)
 
-            ax.set_title(f"{chart_type}: {x_var}" +
-                         (f" vs {y_var}" if y_var != "(없음)" else ""),
-                         fontsize=13, fontweight="bold")
+            ax.set_title(
+                f"{chart_type}: {x_var}" +
+                (f" vs {y_var}" if y_var != "(없음)" else ""),
+                fontsize=13, fontweight="bold"
+            )
             ax.spines[["top", "right"]].set_visible(False)
             plt.tight_layout()
             st.pyplot(fig, use_container_width=True)
@@ -457,6 +467,7 @@ elif current == "eda":
         plt.tight_layout()
         st.pyplot(fig_hm, use_container_width=True)
         plt.close()
+
 
 # ══════════════════════════════════════════════════════════════════
 #  PAGE 3 ── 데이터 전처리 / Feature Selection / Partitioning
