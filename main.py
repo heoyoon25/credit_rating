@@ -11,6 +11,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                              f1_score, roc_curve, auc, confusion_matrix,
                              classification_report)
 from sklearn.preprocessing import LabelEncoder
+import re
 import warnings
 warnings.filterwarnings('ignore')
 
