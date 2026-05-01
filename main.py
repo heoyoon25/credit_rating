@@ -637,15 +637,16 @@ elif current == "preprocess":
             st.rerun()
 
        # ── 이상치 ──────────────────────────────────────────────
-    with tab2:
+       with tab2:
         df_cur = st.session_state.df
 
-        # ✅ 실제로 float 변환 가능한 수치형 컬럼만 필터링
+        # 실제 float 변환 가능한 컬럼만 추출
         num_cols = []
         for c in df_cur.columns:
             if pd.api.types.is_numeric_dtype(df_cur[c]):
                 try:
-                    df_cur[c].dropna().astype(float)
+                    test = df_cur[c].dropna().astype(float).values
+                    _ = np.quantile(test, 0.25)  # 실제 계산 가능한지 테스트
                     num_cols.append(c)
                 except Exception:
                     pass
@@ -656,11 +657,11 @@ elif current == "preprocess":
             outlier_info = []
             for c in num_cols:
                 try:
-                    col_data = df_cur[c].dropna().astype(float)
-                    Q1 = float(col_data.quantile(0.25))
-                    Q3 = float(col_data.quantile(0.75))
+                    arr = df_cur[c].dropna().astype(float).values
+                    Q1 = float(np.quantile(arr, 0.25))
+                    Q3 = float(np.quantile(arr, 0.75))
                     IQR = Q3 - Q1
-                    n_out = int(((col_data < Q1 - 1.5 * IQR) | (col_data > Q3 + 1.5 * IQR)).sum())
+                    n_out = int(((arr < Q1 - 1.5 * IQR) | (arr > Q3 + 1.5 * IQR)).sum())
                     outlier_info.append({
                         "변수명": c,
                         "이상치 수": n_out,
@@ -668,7 +669,7 @@ elif current == "preprocess":
                         "Q3": round(Q3, 2),
                         "IQR": round(IQR, 2)
                     })
-                except Exception as e:
+                except Exception:
                     outlier_info.append({
                         "변수명": c,
                         "이상치 수": "계산불가",
@@ -697,12 +698,15 @@ elif current == "preprocess":
 
                 for c in out_cols:
                     try:
-                        # ✅ float로 명시 변환 후 계산
-                        df_work[c] = df_work[c].astype(float)
-                        Q1 = float(df_work[c].quantile(0.25))
-                        Q3 = float(df_work[c].quantile(0.75))
+                        # numpy로 직접 계산 (pandas quantile 우회)
+                        arr = df_work[c].dropna().astype(float).values
+                        Q1 = float(np.quantile(arr, 0.25))
+                        Q3 = float(np.quantile(arr, 0.75))
                         IQR = Q3 - Q1
-                        lo, hi = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
+                        lo = Q1 - 1.5 * IQR
+                        hi = Q3 + 1.5 * IQR
+
+                        df_work[c] = df_work[c].astype(float)
 
                         if out_method == "IQR 기반 클리핑 (Winsorizing)":
                             df_work[c] = df_work[c].clip(lo, hi)
@@ -718,11 +722,12 @@ elif current == "preprocess":
                 st.session_state.outlier_handled = True
 
                 if processed:
-                    st.success(f"✅ 이상치 처리 완료! 처리 변수: {processed} / 현재 행 수: {len(df_work):,}")
+                    st.success(
+                        f"✅ 처리 완료! 변수: {processed} / 현재 행 수: {len(df_work):,}"
+                    )
                 if skipped:
-                    st.warning(f"⚠️ 처리 실패 변수: {skipped}")
+                    st.warning(f"⚠️ 처리 실패: {skipped}")
                 st.rerun()
-
 
     # ── 수치형 변환 (NEW) ────────────────────────────────────
     with tab3:
