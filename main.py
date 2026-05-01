@@ -976,7 +976,7 @@ with tab4:
                 except Exception as e:
                     st.error(f"❌ 인코딩 오류: {e}")
 
-st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
     # ── SECTION 2: Feature Selection ──────────────────────────
     st.markdown("### 🎯 Feature Selection")
