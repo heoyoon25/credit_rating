@@ -380,78 +380,160 @@ elif current == "eda":
             key="eda_chart"
         )
 
-    if st.button("📊 그래프 생성", key="btn_chart"):
-        fig, ax = plt.subplots(figsize=(9, 4.5))
-        palette = "#667eea"
+   if st.button("📊 그래프 생성", key="btn_chart"):
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    palette = "#667eea"
 
-        try:
-            if chart_type == "Histogram":
-                # ✅ 수정: pd.api.types 사용
-                if not pd.api.types.is_numeric_dtype(df[x_var]):
-                    df[x_var].value_counts().plot(kind="bar", ax=ax, color=palette)
-                    ax.set_xlabel(x_var); ax.set_ylabel("빈도")
-                else:
-                    ax.hist(df[x_var].dropna(), bins=30, color=palette,
-                            edgecolor="white", alpha=0.85)
-                    ax.set_xlabel(x_var); ax.set_ylabel("빈도")
+    try:
+        x_data = df[x_var].copy()
+        y_data = df[y_var].copy() if y_var != "(없음)" else None
 
-            elif chart_type == "Box Plot":
-                if y_var != "(없음)" and not pd.api.types.is_numeric_dtype(df[y_var]):
-                    groups = [df[df[y_var] == g][x_var].dropna()
-                              for g in df[y_var].unique()]
-                    ax.boxplot(groups, labels=df[y_var].unique(), patch_artist=True,
-                               boxprops=dict(facecolor=palette, alpha=0.6))
-                    ax.set_xlabel(y_var); ax.set_ylabel(x_var)
-                else:
-                    ax.boxplot(df[x_var].dropna(), patch_artist=True,
-                               boxprops=dict(facecolor=palette, alpha=0.6))
-                    ax.set_ylabel(x_var)
+        x_is_num = pd.api.types.is_numeric_dtype(x_data)
+        y_is_num = pd.api.types.is_numeric_dtype(y_data) if y_data is not None else False
 
-            elif chart_type == "Scatter Plot":
-                if y_var == "(없음)":
-                    st.warning("Scatter Plot은 Y축 변수를 선택해야 합니다.")
-                    plt.close()
-                    st.stop()
-                ax.scatter(df[x_var], df[y_var], alpha=0.4,
-                           color=palette, edgecolors="white", linewidths=0.3)
-                ax.set_xlabel(x_var); ax.set_ylabel(y_var)
-
-            elif chart_type == "Bar Chart":
-                if not pd.api.types.is_numeric_dtype(df[x_var]):
-                    df[x_var].value_counts().plot(kind="bar", ax=ax,
-                                                  color=palette, edgecolor="white")
-                else:
-                    if y_var != "(없음)":
-                        df.groupby(x_var)[y_var].mean().plot(
-                            kind="bar", ax=ax, color=palette, edgecolor="white")
-                        ax.set_ylabel(f"{y_var} (평균)")
-                    else:
-                        df[x_var].value_counts().sort_index().plot(
-                            kind="bar", ax=ax, color=palette, edgecolor="white")
+        # ── Histogram ───────────────────────────────────────────
+        if chart_type == "Histogram":
+            if x_is_num:
+                ax.hist(x_data.dropna().astype(float), bins=30,
+                        color=palette, edgecolor="white", alpha=0.85)
                 ax.set_xlabel(x_var)
+                ax.set_ylabel("빈도")
+            else:
+                counts = x_data.value_counts()
+                ax.bar(range(len(counts)), counts.values,
+                       color=palette, edgecolor="white", alpha=0.85)
+                ax.set_xticks(range(len(counts)))
+                ax.set_xticklabels(counts.index, rotation=45, ha="right")
+                ax.set_xlabel(x_var)
+                ax.set_ylabel("빈도")
 
-            elif chart_type == "Line Chart":
-                if y_var != "(없음)":
-                    ax.plot(df[x_var], df[y_var],
-                            color=palette, alpha=0.7, linewidth=1.2)
-                    ax.set_xlabel(x_var); ax.set_ylabel(y_var)
+        # ── Box Plot ─────────────────────────────────────────────
+        elif chart_type == "Box Plot":
+            if not x_is_num:
+                st.warning("Box Plot의 X축은 수치형 변수를 선택해 주세요.")
+                plt.close()
+                st.stop()
+
+            if y_data is not None and not y_is_num:
+                # 범주형 Y → 그룹별 박스플롯
+                groups = []
+                labels = []
+                for g in df[y_var].dropna().unique():
+                    grp = df[df[y_var] == g][x_var].dropna().astype(float)
+                    if len(grp) > 0:
+                        groups.append(grp.values)
+                        labels.append(str(g))
+                bp = ax.boxplot(groups, patch_artist=True,
+                                boxprops=dict(facecolor=palette, alpha=0.6),
+                                medianprops=dict(color="red", linewidth=2))
+                ax.set_xticks(range(1, len(labels) + 1))
+                ax.set_xticklabels(labels, rotation=45, ha="right")
+                ax.set_xlabel(y_var)
+                ax.set_ylabel(x_var)
+            else:
+                # 단일 박스플롯
+                bp = ax.boxplot(x_data.dropna().astype(float).values,
+                                patch_artist=True,
+                                boxprops=dict(facecolor=palette, alpha=0.6),
+                                medianprops=dict(color="red", linewidth=2))
+                ax.set_ylabel(x_var)
+                ax.set_xticks([1])
+                ax.set_xticklabels([x_var])
+
+        # ── Scatter Plot ─────────────────────────────────────────
+        elif chart_type == "Scatter Plot":
+            if y_var == "(없음)":
+                st.warning("Scatter Plot은 Y축 변수를 선택해야 합니다.")
+                plt.close()
+                st.stop()
+            if not x_is_num or not y_is_num:
+                st.warning("Scatter Plot은 X축, Y축 모두 수치형 변수를 선택해 주세요.")
+                plt.close()
+                st.stop()
+
+            valid = df[[x_var, y_var]].dropna()
+            ax.scatter(valid[x_var].astype(float),
+                       valid[y_var].astype(float),
+                       alpha=0.4, color=palette,
+                       edgecolors="white", linewidths=0.3)
+            ax.set_xlabel(x_var)
+            ax.set_ylabel(y_var)
+
+        # ── Bar Chart ────────────────────────────────────────────
+        elif chart_type == "Bar Chart":
+            if not x_is_num:
+                # 범주형 X → 빈도 막대
+                counts = x_data.value_counts()
+                ax.bar(range(len(counts)), counts.values,
+                       color=palette, edgecolor="white", alpha=0.85)
+                ax.set_xticks(range(len(counts)))
+                ax.set_xticklabels(counts.index, rotation=45, ha="right")
+                ax.set_xlabel(x_var)
+                ax.set_ylabel("빈도")
+            else:
+                if y_data is not None and y_is_num:
+                    # 수치형 X, 수치형 Y → 구간별 평균
+                    valid = df[[x_var, y_var]].dropna()
+                    valid[x_var] = valid[x_var].astype(float)
+                    valid[y_var] = valid[y_var].astype(float)
+                    bins = pd.cut(valid[x_var], bins=10)
+                    grouped = valid.groupby(bins, observed=True)[y_var].mean()
+                    labels = [str(i) for i in grouped.index]
+                    ax.bar(range(len(grouped)), grouped.values,
+                           color=palette, edgecolor="white", alpha=0.85)
+                    ax.set_xticks(range(len(labels)))
+                    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+                    ax.set_xlabel(x_var)
+                    ax.set_ylabel(f"{y_var} (평균)")
                 else:
-                    df[x_var].reset_index(drop=True).plot(ax=ax, color=palette)
-                    ax.set_ylabel(x_var)
+                    # 수치형 X → 빈도
+                    counts = x_data.value_counts().sort_index()
+                    ax.bar(range(len(counts)), counts.values,
+                           color=palette, edgecolor="white", alpha=0.85)
+                    ax.set_xticks(range(len(counts)))
+                    ax.set_xticklabels(
+                        [str(i) for i in counts.index],
+                        rotation=45, ha="right", fontsize=8
+                    )
+                    ax.set_xlabel(x_var)
+                    ax.set_ylabel("빈도")
 
-            ax.set_title(
-                f"{chart_type}: {x_var}" +
-                (f" vs {y_var}" if y_var != "(없음)" else ""),
-                fontsize=13, fontweight="bold"
-            )
-            ax.spines[["top", "right"]].set_visible(False)
-            plt.tight_layout()
-            st.pyplot(fig, use_container_width=True)
+        # ── Line Chart ───────────────────────────────────────────
+        elif chart_type == "Line Chart":
+            if not x_is_num:
+                st.warning("Line Chart의 X축은 수치형 변수를 선택해 주세요.")
+                plt.close()
+                st.stop()
 
-        except Exception as e:
-            st.error(f"그래프 생성 오류: {e}")
-        finally:
-            plt.close()
+            if y_data is not None and y_is_num:
+                valid = df[[x_var, y_var]].dropna().sort_values(x_var)
+                ax.plot(valid[x_var].astype(float),
+                        valid[y_var].astype(float),
+                        color=palette, alpha=0.8, linewidth=1.5)
+                ax.set_xlabel(x_var)
+                ax.set_ylabel(y_var)
+            else:
+                sorted_data = x_data.dropna().astype(float).reset_index(drop=True)
+                ax.plot(sorted_data.index, sorted_data.values,
+                        color=palette, alpha=0.8, linewidth=1.5)
+                ax.set_xlabel("Index")
+                ax.set_ylabel(x_var)
+
+        # ── 공통 스타일 ──────────────────────────────────────────
+        title = f"{chart_type}  |  {x_var}"
+        if y_var != "(없음)":
+            title += f"  vs  {y_var}"
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.yaxis.grid(True, alpha=0.3, linestyle="--")
+        plt.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"그래프 생성 오류: {e}")
+    finally:
+        plt.close()
+
 
     # ── 상관관계 히트맵 ────────────────────────────────────────
     if len(num_cols) >= 2:
