@@ -585,7 +585,6 @@ elif current == "preprocess":
     st.markdown("## ⚙️ 데이터 전처리")
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
-    # ── SECTION 1: 데이터 전처리 ──────────────────────────────
     st.markdown("### 🧹 데이터 전처리")
 
     tab1, tab2, tab3, tab4 = st.tabs(["결측치 처리", "이상치 처리", "수치형 변환", "원핫 인코딩"])
@@ -618,35 +617,55 @@ elif current == "preprocess":
             num_cols = [c for c in df_work.columns if pd.api.types.is_numeric_dtype(df_work[c])]
             cat_cols = [c for c in df_work.columns if not pd.api.types.is_numeric_dtype(df_work[c])]
 
-            if method == "평균값 대체 (수치형)":
+            if method == "행 삭제":
+                df_work = df_work.dropna().reset_index(drop=True)
+
+            else:
+                # ✅ 수치형 처리
                 for c in num_cols:
-                    df_work[c] = df_work[c].fillna(df_work[c].mean())
-            elif method == "중앙값 대체 (수치형)":
-                for c in num_cols:
-                    df_work[c] = df_work[c].fillna(df_work[c].median())
-            elif method == "최빈값 대체 (범주형)":
+                    if df_work[c].isnull().any():
+                        if method == "평균값 대체 (수치형)":
+                            df_work[c] = df_work[c].fillna(df_work[c].mean())
+                        else:  # 중앙값 or 최빈값 선택 시에도 수치형은 중앙값으로
+                            df_work[c] = df_work[c].fillna(df_work[c].median())
+
+                # ✅ 범주형 처리 (항상 최빈값으로)
                 for c in cat_cols:
                     if df_work[c].isnull().any():
-                        df_work[c] = df_work[c].fillna(df_work[c].mode()[0])
-            else:
-                df_work = df_work.dropna()
+                        mode_val = df_work[c].mode()
+                        if len(mode_val) > 0:
+                            df_work[c] = df_work[c].fillna(mode_val[0])
+
+            # ✅ 그래도 남은 NaN 강제 제거 (최종 안전망)
+            remaining = df_work.isnull().sum().sum()
+            if remaining > 0:
+                for c in df_work.columns:
+                    if df_work[c].isnull().any():
+                        if pd.api.types.is_numeric_dtype(df_work[c]):
+                            df_work[c] = df_work[c].fillna(df_work[c].median())
+                        else:
+                            df_work[c] = df_work[c].fillna("Unknown")
 
             st.session_state.df = df_work
             st.session_state.missing_handled = True
-            st.success(f"✅ 결측치 처리 완료! (남은 결측치: {df_work.isnull().sum().sum()}개)")
+
+            final_nan = df_work.isnull().sum().sum()
+            if final_nan == 0:
+                st.success(f"✅ 결측치 처리 완료! 남은 결측치: 0개 🎉")
+            else:
+                st.warning(f"⚠️ 처리 후 남은 결측치: {final_nan}개")
             st.rerun()
 
-# ── 이상치 ──────────────────────────────────────────────
+    # ── 이상치 ──────────────────────────────────────────────
     with tab2:
         df_cur = st.session_state.df
 
-        # 실제 float 변환 가능한 컬럼만 추출
         num_cols = []
         for c in df_cur.columns:
             if pd.api.types.is_numeric_dtype(df_cur[c]):
                 try:
                     test = df_cur[c].dropna().astype(float).values
-                    _ = np.quantile(test, 0.25)  # 실제 계산 가능한지 테스트
+                    _ = np.quantile(test, 0.25)
                     num_cols.append(c)
                 except Exception:
                     pass
@@ -698,7 +717,6 @@ elif current == "preprocess":
 
                 for c in out_cols:
                     try:
-                        # numpy로 직접 계산 (pandas quantile 우회)
                         arr = df_work[c].dropna().astype(float).values
                         Q1 = float(np.quantile(arr, 0.25))
                         Q3 = float(np.quantile(arr, 0.75))
@@ -718,6 +736,9 @@ elif current == "preprocess":
                     except Exception as e:
                         skipped.append(f"{c} ({e})")
 
+                # ✅ 행 제거 후 인덱스 리셋
+                df_work = df_work.reset_index(drop=True)
+
                 st.session_state.df = df_work
                 st.session_state.outlier_handled = True
 
@@ -729,193 +750,233 @@ elif current == "preprocess":
                     st.warning(f"⚠️ 처리 실패: {skipped}")
                 st.rerun()
 
-    # ── 수치형 변환 (NEW) ────────────────────────────────────
-    with tab3:
-        df_cur = st.session_state.df
-        cat_cols_all = [c for c in df_cur.columns if not pd.api.types.is_numeric_dtype(df_cur[c])]
+  # ── 수치형 변환 ────────────────────────────────────
+with tab3:
+    df_cur = st.session_state.df
+    cat_cols_all = [c for c in df_cur.columns if not pd.api.types.is_numeric_dtype(df_cur[c])]
 
-        st.markdown("#### 🔢 문자열 → 수치형 변환")
-        st.markdown("""
-        `%`, `₩`, `,` 등 특수문자가 포함된 숫자형 문자열을 수치형으로 변환합니다.  
-        예) `'13.5%'` → `13.5` / `'1,000'` → `1000`
-        """)
+    st.markdown("#### 🔢 문자열 → 수치형 변환")
+    st.markdown("""
+    `%`, `₩`, `,` 등 특수문자가 포함된 숫자형 문자열을 수치형으로 변환합니다.  
+    예) `'13.5%'` → `13.5` / `'1,000'` → `1000`
+    """)
 
-        if not cat_cols_all:
-            st.success("✅ 변환할 범주형 변수가 없습니다.")
-        else:
-            # 자동 감지: 고유값이 많고 숫자+특수문자로 구성된 컬럼 추천
-            auto_detect = []
-            for c in cat_cols_all:
-                sample = df_cur[c].dropna().astype(str).head(50)
-                cleaned = sample.str.replace(r'[%,₩$\s]', '', regex=True)
-                try:
-                    pd.to_numeric(cleaned)
+    if not cat_cols_all:
+        st.success("✅ 변환할 범주형 변수가 없습니다.")
+    else:
+        # 자동 감지
+        auto_detect = []
+        for c in cat_cols_all:
+            sample = df_cur[c].dropna().astype(str).head(50)
+            cleaned = sample.str.replace(r'[%,₩$\s]', '', regex=True)
+            try:
+                pd.to_numeric(cleaned)
+                auto_detect.append(c)
+            except Exception:
+                numeric_ratio = pd.to_numeric(cleaned, errors='coerce').notna().mean()
+                if numeric_ratio > 0.8:
                     auto_detect.append(c)
-                except Exception:
-                    numeric_ratio = pd.to_numeric(cleaned, errors='coerce').notna().mean()
-                    if numeric_ratio > 0.8:
-                        auto_detect.append(c)
 
-            if auto_detect:
-                st.info(f"💡 수치형으로 변환 가능한 변수가 감지되었습니다: **{auto_detect}**")
+        if auto_detect:
+            st.info(f"💡 수치형으로 변환 가능한 변수가 감지되었습니다: **{auto_detect}**")
 
-            convert_cols = st.multiselect(
-                "수치형으로 변환할 변수 선택",
-                cat_cols_all,
-                default=auto_detect,
-                key="convert_cols"
-            )
+        convert_cols = st.multiselect(
+            "수치형으로 변환할 변수 선택",
+            cat_cols_all,
+            default=auto_detect,
+            key="convert_cols"
+        )
 
-            remove_chars = st.text_input(
-                "제거할 특수문자 (기본: % , ₩ $ 공백)",
-                value="%,₩$ ",
-                key="remove_chars"
-            )
+        remove_chars = st.text_input(
+            "제거할 특수문자 (기본: % , ₩ $ 공백)",
+            value="%,₩$ ",
+            key="remove_chars"
+        )
 
-            col_prev1, col_prev2 = st.columns(2)
-            with col_prev1:
-                st.markdown("**변환 전 미리보기**")
-                if convert_cols:
-                    st.dataframe(
-                        df_cur[convert_cols].head(5).astype(str),
-                        use_container_width=True
+        col_prev1, col_prev2 = st.columns(2)
+        with col_prev1:
+            st.markdown("**변환 전 미리보기**")
+            if convert_cols:
+                st.dataframe(
+                    df_cur[convert_cols].head(5).astype(str),
+                    use_container_width=True
+                )
+
+        with col_prev2:
+            st.markdown("**변환 후 미리보기**")
+            if convert_cols:
+                preview = df_cur[convert_cols].head(5).copy()
+                for c in convert_cols:
+                    pattern = f"[{re.escape(remove_chars)}]"
+                    preview[c] = pd.to_numeric(
+                        preview[c].astype(str).str.replace(pattern, '', regex=True),
+                        errors='coerce'
                     )
+                st.dataframe(preview, use_container_width=True)
 
-            with col_prev2:
-                st.markdown("**변환 후 미리보기**")
-                if convert_cols:
-                    preview = df_cur[convert_cols].head(5).copy()
-                    for c in convert_cols:
+        if st.button("✅ 수치형 변환 실행", key="btn_convert"):
+            if not convert_cols:
+                st.warning("변환할 변수를 선택해 주세요.")
+            else:
+                df_work = st.session_state.df.copy()
+                success_cols = []
+                fail_cols = []
+
+                for c in convert_cols:
+                    try:
                         pattern = f"[{re.escape(remove_chars)}]"
-                        preview[c] = pd.to_numeric(
-                            preview[c].astype(str).str.replace(pattern, '', regex=True),
+                        converted = pd.to_numeric(
+                            df_work[c].astype(str).str.replace(pattern, '', regex=True),
                             errors='coerce'
                         )
-                    st.dataframe(preview, use_container_width=True)
+                        success_rate = converted.notna().mean()
 
-            if st.button("✅ 수치형 변환 실행", key="btn_convert"):
-                if not convert_cols:
-                    st.warning("변환할 변수를 선택해 주세요.")
-                else:
-                    df_work = st.session_state.df.copy()
-                    success_cols = []
-                    fail_cols = []
+                        if success_rate >= 0.8:
+                            # ✅ 변환 후 남은 NaN → 중앙값으로 대체
+                            if converted.isnull().any():
+                                median_val = converted.median()
+                                converted = converted.fillna(median_val)
 
-                    for c in convert_cols:
-                        try:
-                            pattern = f"[{re.escape(remove_chars)}]"
-                            converted = pd.to_numeric(
-                                df_work[c].astype(str).str.replace(pattern, '', regex=True),
-                                errors='coerce'
-                            )
-                            # 변환 성공률 80% 이상이면 적용
-                            success_rate = converted.notna().mean()
-                            if success_rate >= 0.8:
-                                df_work[c] = converted
-                                success_cols.append(f"{c} ({success_rate:.0%})")
-                            else:
-                                fail_cols.append(f"{c} ({success_rate:.0%})")
-                        except Exception as e:
-                            fail_cols.append(f"{c} (오류: {e})")
+                            df_work[c] = converted
+                            success_cols.append(f"{c} ({success_rate:.0%})")
+                        else:
+                            fail_cols.append(f"{c} ({success_rate:.0%})")
+                    except Exception as e:
+                        fail_cols.append(f"{c} (오류: {e})")
 
-                    st.session_state.df = df_work
+                st.session_state.df = df_work
+                st.session_state.convert_handled = True  # ✅ 완료 플래그 저장
 
-                    if success_cols:
-                        st.success(f"✅ 변환 완료: {success_cols}")
-                    if fail_cols:
-                        st.warning(f"⚠️ 변환 실패 (수치 비율 80% 미만): {fail_cols}")
-                    st.rerun()
+                if success_cols:
+                    st.success(f"✅ 변환 완료: {success_cols}")
+                if fail_cols:
+                    st.warning(f"⚠️ 변환 실패 (수치 비율 80% 미만): {fail_cols}")
+
+                # ✅ 메시지 확인 후 rerun (0.5초 딜레이)
+                import time
+                time.sleep(0.5)
+                st.rerun()
 
     # ── 원핫 인코딩 ─────────────────────────────────────────
     with tab4:
-        df_cur = st.session_state.df
-        cat_cols = [c for c in df_cur.columns if not pd.api.types.is_numeric_dtype(df_cur[c])]
+    df_cur = st.session_state.df
+    cat_cols = [c for c in df_cur.columns if not pd.api.types.is_numeric_dtype(df_cur[c])]
 
-        if not cat_cols:
-            st.success("✅ 인코딩할 범주형 변수가 없습니다.")
+    if not cat_cols:
+        st.success("✅ 인코딩할 범주형 변수가 없습니다.")
+    else:
+        st.markdown("**범주형 변수 목록**")
+        cat_info = pd.DataFrame({
+            "변수명":    cat_cols,
+            "고유값 수": [df_cur[c].nunique() for c in cat_cols],
+            "샘플값":    [str(df_cur[c].dropna().unique()[:3].tolist()) for c in cat_cols],
+        })
+        st.dataframe(cat_info, use_container_width=True)
+
+        high_cardinality = [c for c in cat_cols if df_cur[c].nunique() > 10]
+        if high_cardinality:
+            st.warning(f"""
+            ⚠️ **고유값이 10개 초과인 변수** (One-Hot 인코딩 시 컬럼 폭발 주의):  
+            {high_cardinality}  
+            → **수치형 변환 탭**에서 먼저 처리하거나, Label Encoding을 권장합니다.
+            """)
+
+        safe_cols = [c for c in cat_cols if df_cur[c].nunique() <= 10]
+
+        enc_method = st.radio(
+            "인코딩 방법",
+            ["One-Hot Encoding", "Label Encoding"],
+            horizontal=True,
+            key="enc_method"
+        )
+
+        if enc_method == "One-Hot Encoding":
+            enc_cols = st.multiselect(
+                "인코딩할 변수 선택",
+                cat_cols,
+                default=safe_cols,
+                key="enc_cols_ohe",
+                help="고유값이 적은 변수만 선택을 권장합니다."
+            )
+            if enc_cols:
+                expected_new_cols = sum(df_cur[c].nunique() - 1 for c in enc_cols)
+                remaining_cols = len([c for c in df_cur.columns if c not in enc_cols])
+                total_expected = remaining_cols + expected_new_cols
+                current_cols = df_cur.shape[1]
+
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric("현재 컬럼 수", f"{current_cols}개")
+                with col_b:
+                    st.metric("인코딩 후 예상 컬럼 수", f"{total_expected}개")
+                with col_c:
+                    delta = total_expected - current_cols
+                    st.metric("증가량", f"+{delta}개",
+                              delta_color="inverse" if delta > 50 else "normal")
         else:
-            # 고유값 수와 함께 표시
-            st.markdown("**범주형 변수 목록**")
-            cat_info = pd.DataFrame({
-                "변수명":    cat_cols,
-                "고유값 수": [df_cur[c].nunique() for c in cat_cols],
-                "샘플값":    [str(df_cur[c].dropna().unique()[:3].tolist()) for c in cat_cols],
-            })
-            st.dataframe(cat_info, use_container_width=True)
-
-            # 고유값 10개 초과 변수 경고
-            high_cardinality = [c for c in cat_cols if df_cur[c].nunique() > 10]
-            if high_cardinality:
-                st.warning(f"""
-                ⚠️ **고유값이 10개 초과인 변수** (One-Hot 인코딩 시 컬럼 폭발 주의):  
-                {high_cardinality}  
-                → **수치형 변환 탭**에서 먼저 처리하거나, Label Encoding을 권장합니다.
-                """)
-
-            # 안전한 변수만 기본 선택 (고유값 10개 이하)
-            safe_cols = [c for c in cat_cols if df_cur[c].nunique() <= 10]
-
-            enc_method = st.radio(
-                "인코딩 방법",
-                ["One-Hot Encoding", "Label Encoding"],
-                horizontal=True,
-                key="enc_method"
+            enc_cols = st.multiselect(
+                "인코딩할 변수 선택",
+                cat_cols,
+                default=cat_cols,
+                key="enc_cols_le"
             )
 
-            if enc_method == "One-Hot Encoding":
-                enc_cols = st.multiselect(
-                    "인코딩할 변수 선택",
-                    cat_cols,
-                    default=safe_cols,
-                    key="enc_cols_ohe",
-                    help="고유값이 적은 변수만 선택을 권장합니다."
-                )
-                # 선택된 변수의 예상 컬럼 수 계산
-                if enc_cols:
-                    expected_new_cols = sum(df_cur[c].nunique() - 1 for c in enc_cols)
-                    current_cols = df_cur.shape[1]
-                    remaining_cols = len([c for c in df_cur.columns if c not in enc_cols])
-                    total_expected = remaining_cols + expected_new_cols
-
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        st.metric("현재 컬럼 수", f"{current_cols}개")
-                    with col_b:
-                        st.metric("인코딩 후 예상 컬럼 수", f"{total_expected}개")
-                    with col_c:
-                        delta = total_expected - current_cols
-                        st.metric("증가량", f"+{delta}개",
-                                  delta_color="inverse" if delta > 50 else "normal")
-
+        if st.button("✅ 인코딩 실행", key="btn_encode"):
+            if not enc_cols:
+                st.warning("인코딩할 변수를 선택해 주세요.")
             else:
-                enc_cols = st.multiselect(
-                    "인코딩할 변수 선택",
-                    cat_cols,
-                    default=cat_cols,
-                    key="enc_cols_le"
-                )
+                df_work = st.session_state.df.copy()
+                try:
+                    if enc_method == "One-Hot Encoding":
+                        df_work = pd.get_dummies(df_work, columns=enc_cols, drop_first=True)
 
-            if st.button("✅ 인코딩 실행", key="btn_encode"):
-                if not enc_cols:
-                    st.warning("인코딩할 변수를 선택해 주세요.")
-                else:
-                    df_work = st.session_state.df.copy()
-                    try:
-                        if enc_method == "One-Hot Encoding":
-                            df_work = pd.get_dummies(df_work, columns=enc_cols, drop_first=True)
-                        else:
-                            le = LabelEncoder()
-                            for c in enc_cols:
-                                df_work[c] = le.fit_transform(df_work[c].astype(str))
+                        # ✅ bool 타입 → int로 변환 (pandas 2.0+ 대응)
+                        bool_cols = [c for c in df_work.columns if df_work[c].dtype == bool]
+                        if bool_cols:
+                            df_work[bool_cols] = df_work[bool_cols].astype(int)
 
-                        st.session_state.df = df_work
-                        st.session_state.encoded = True
-                        st.success(f"✅ 인코딩 완료! (현재 열 수: {df_work.shape[1]})")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ 인코딩 오류: {e}")
+                    else:  # Label Encoding
+                        le = LabelEncoder()
+                        for c in enc_cols:
+                            # ✅ NaN 먼저 처리 후 인코딩
+                            if df_work[c].isnull().any():
+                                mode_val = df_work[c].mode()
+                                df_work[c] = df_work[c].fillna(
+                                    mode_val[0] if len(mode_val) > 0 else "Unknown"
+                                )
+                            df_work[c] = le.fit_transform(df_work[c].astype(str))
 
-    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+                    # ✅ 인코딩 후 남은 object 컬럼 확인 및 경고
+                    remaining_obj = [
+                        c for c in df_work.columns
+                        if df_work[c].dtype == object and c not in enc_cols
+                    ]
+                    if remaining_obj:
+                        st.warning(f"⚠️ 아직 인코딩되지 않은 범주형 변수: {remaining_obj}")
+
+                    # ✅ 최종 NaN 확인
+                    final_nan = df_work.isnull().sum().sum()
+                    if final_nan > 0:
+                        st.warning(f"⚠️ 인코딩 후 NaN {final_nan}개 감지 → 자동 제거")
+                        for c in df_work.columns:
+                            if df_work[c].isnull().any():
+                                if pd.api.types.is_numeric_dtype(df_work[c]):
+                                    df_work[c] = df_work[c].fillna(df_work[c].median())
+                                else:
+                                    df_work[c] = df_work[c].fillna("Unknown")
+
+                    st.session_state.df = df_work
+                    st.session_state.encoded = True
+                    st.success(f"✅ 인코딩 완료! (현재 열 수: {df_work.shape[1]})")
+
+                    import time
+                    time.sleep(0.5)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ 인코딩 오류: {e}")
+
+st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
     # ── SECTION 2: Feature Selection ──────────────────────────
     st.markdown("### 🎯 Feature Selection")
