@@ -636,8 +636,8 @@ elif current == "preprocess":
             st.success(f"✅ 결측치 처리 완료! (남은 결측치: {df_work.isnull().sum().sum()}개)")
             st.rerun()
 
-       # ── 이상치 ──────────────────────────────────────────────
-       with tab2:
+# ── 이상치 ──────────────────────────────────────────────
+    with tab2:
         df_cur = st.session_state.df
 
         # 실제 float 변환 가능한 컬럼만 추출
