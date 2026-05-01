@@ -636,23 +636,45 @@ elif current == "preprocess":
             st.success(f"✅ 결측치 처리 완료! (남은 결측치: {df_work.isnull().sum().sum()}개)")
             st.rerun()
 
-    # ── 이상치 ──────────────────────────────────────────────
+       # ── 이상치 ──────────────────────────────────────────────
     with tab2:
         df_cur = st.session_state.df
-        num_cols = [c for c in df_cur.columns if pd.api.types.is_numeric_dtype(df_cur[c])]
+
+        # ✅ 실제로 float 변환 가능한 수치형 컬럼만 필터링
+        num_cols = []
+        for c in df_cur.columns:
+            if pd.api.types.is_numeric_dtype(df_cur[c]):
+                try:
+                    df_cur[c].dropna().astype(float)
+                    num_cols.append(c)
+                except Exception:
+                    pass
 
         if not num_cols:
             st.info("수치형 변수가 없습니다.")
         else:
             outlier_info = []
             for c in num_cols:
-                Q1, Q3 = df_cur[c].quantile(0.25), df_cur[c].quantile(0.75)
-                IQR = Q3 - Q1
-                n_out = ((df_cur[c] < Q1 - 1.5 * IQR) | (df_cur[c] > Q3 + 1.5 * IQR)).sum()
-                outlier_info.append({
-                    "변수명": c, "이상치 수": n_out,
-                    "Q1": round(Q1, 2), "Q3": round(Q3, 2), "IQR": round(IQR, 2)
-                })
+                try:
+                    col_data = df_cur[c].dropna().astype(float)
+                    Q1 = float(col_data.quantile(0.25))
+                    Q3 = float(col_data.quantile(0.75))
+                    IQR = Q3 - Q1
+                    n_out = int(((col_data < Q1 - 1.5 * IQR) | (col_data > Q3 + 1.5 * IQR)).sum())
+                    outlier_info.append({
+                        "변수명": c,
+                        "이상치 수": n_out,
+                        "Q1": round(Q1, 2),
+                        "Q3": round(Q3, 2),
+                        "IQR": round(IQR, 2)
+                    })
+                except Exception as e:
+                    outlier_info.append({
+                        "변수명": c,
+                        "이상치 수": "계산불가",
+                        "Q1": "-", "Q3": "-", "IQR": "-"
+                    })
+
             st.dataframe(pd.DataFrame(outlier_info), use_container_width=True)
 
             out_method = st.radio(
@@ -661,23 +683,46 @@ elif current == "preprocess":
                 horizontal=True,
                 key="outlier_method"
             )
-            out_cols = st.multiselect("처리할 변수 선택", num_cols, default=num_cols, key="outlier_cols")
+            out_cols = st.multiselect(
+                "처리할 변수 선택",
+                num_cols,
+                default=num_cols,
+                key="outlier_cols"
+            )
 
             if st.button("✅ 이상치 처리 실행", key="btn_outlier"):
                 df_work = st.session_state.df.copy()
+                processed = []
+                skipped = []
+
                 for c in out_cols:
-                    Q1, Q3 = df_work[c].quantile(0.25), df_work[c].quantile(0.75)
-                    IQR = Q3 - Q1
-                    lo, hi = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
-                    if out_method == "IQR 기반 클리핑 (Winsorizing)":
-                        df_work[c] = df_work[c].clip(lo, hi)
-                    else:
-                        df_work = df_work[(df_work[c] >= lo) & (df_work[c] <= hi)]
+                    try:
+                        # ✅ float로 명시 변환 후 계산
+                        df_work[c] = df_work[c].astype(float)
+                        Q1 = float(df_work[c].quantile(0.25))
+                        Q3 = float(df_work[c].quantile(0.75))
+                        IQR = Q3 - Q1
+                        lo, hi = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
+
+                        if out_method == "IQR 기반 클리핑 (Winsorizing)":
+                            df_work[c] = df_work[c].clip(lo, hi)
+                        else:
+                            df_work = df_work[
+                                (df_work[c] >= lo) & (df_work[c] <= hi)
+                            ]
+                        processed.append(c)
+                    except Exception as e:
+                        skipped.append(f"{c} ({e})")
 
                 st.session_state.df = df_work
                 st.session_state.outlier_handled = True
-                st.success(f"✅ 이상치 처리 완료! (현재 행 수: {len(df_work):,})")
+
+                if processed:
+                    st.success(f"✅ 이상치 처리 완료! 처리 변수: {processed} / 현재 행 수: {len(df_work):,}")
+                if skipped:
+                    st.warning(f"⚠️ 처리 실패 변수: {skipped}")
                 st.rerun()
+
 
     # ── 수치형 변환 (NEW) ────────────────────────────────────
     with tab3:
