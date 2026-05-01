@@ -858,7 +858,7 @@ with tab3:
                 st.rerun()
 
     # ── 원핫 인코딩 ─────────────────────────────────────────
-    with tab4:
+with tab4:
     df_cur = st.session_state.df
     cat_cols = [c for c in df_cur.columns if not pd.api.types.is_numeric_dtype(df_cur[c])]
 
